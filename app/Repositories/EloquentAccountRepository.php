@@ -20,15 +20,21 @@ class EloquentAccountRepository implements AccountRepositoryInterface
 
     public function debit(Account $account, string $amount): void
     {
-        // lockForUpdate() holds a row-level lock until the transaction commits,
-        // preventing double-spend when concurrent requests hit the same account.
-        Account::lockForUpdate()->findOrFail($account->id);
+        // Re-fetch with a row-level lock and operate on THAT instance
+        $locked = Account::lockForUpdate()->findOrFail($account->id);
 
-        $account->decrement('balance', $amount);
+        if (bccomp($locked->balance, $amount, 2) < 0) {
+            throw new \RuntimeException('Insufficient funds.');
+        }
+
+        $locked->decrement('balance', $amount);
     }
 
     public function credit(Account $account, string $amount): void
     {
-        $account->increment('balance', $amount);
+        // Also lock the row on credit — protects against concurrent writes
+        $locked = Account::lockForUpdate()->findOrFail($account->id);
+
+        $locked->increment('balance', $amount);
     }
 }
